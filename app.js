@@ -45,9 +45,6 @@ function initializeExtension() {
         dashboard = tableau.extensions.dashboardContent.dashboard;
         console.log('Dashboard loaded:', dashboard.name);
         
-        // Show info message about Tableau warnings
-        console.log('%c⚠️ NOTE: Tableau may show "No Tableau Server user found" or "DataServiceFailure" warnings. These are non-critical system messages from Tableau Desktop and do not affect the export functionality.', 'color: #ff9800; font-weight: bold;');
-        
         // Listen for filter changes on all worksheets
         setupFilterChangeListeners();
         
@@ -270,8 +267,7 @@ async function handleWorksheetSelection() {
                 
                 // Check if we already have columns cached
                 if (!window.worksheetColumns.has(worksheetName)) {
-                    // Fetch just columns metadata (Tableau may show warnings - these are non-critical)
-                    const dataTable = await worksheet.getSummaryDataAsync({ maxRows: 0 });
+                    const dataTable = await worksheet.getSummaryDataAsync({ maxRows: 1 });
                     // Include all columns (including AGG columns like running sums)
                     const allColumns = dataTable.columns;
                     window.worksheetColumns.set(worksheetName, allColumns);
@@ -328,6 +324,47 @@ async function handleWorksheetSelection() {
                 buttonGroup.appendChild(deselectAllBtn);
                 tabContent.appendChild(buttonGroup);
 
+                // Sort controls for this worksheet
+                const sortContainer = document.createElement('div');
+                sortContainer.style.cssText = 'display: flex; gap: 8px; align-items: center; margin-bottom: 10px;';
+
+                const sortLabel = document.createElement('span');
+                sortLabel.textContent = 'Sort by:';
+                sortLabel.style.fontWeight = '600';
+                sortLabel.style.fontSize = '13px';
+
+                const sortSelect = document.createElement('select');
+                sortSelect.className = 'sort-column-selector';
+                sortSelect.style.cssText = 'flex: 1; padding: 6px; font-size: 13px;';
+                const defaultOpt = document.createElement('option');
+                defaultOpt.value = '';
+                defaultOpt.textContent = 'No sort';
+                sortSelect.appendChild(defaultOpt);
+
+                columns.forEach(col => {
+                    const opt = document.createElement('option');
+                    opt.value = col.fieldName;
+                    opt.textContent = getDisplayName(col.fieldName);
+                    sortSelect.appendChild(opt);
+                });
+
+                const sortDir = document.createElement('select');
+                sortDir.className = 'sort-direction-selector';
+                sortDir.style.cssText = 'width: 110px; padding: 6px; font-size: 13px;';
+                const ascOpt = document.createElement('option');
+                ascOpt.value = 'asc';
+                ascOpt.textContent = 'Ascending';
+                sortDir.appendChild(ascOpt);
+                const descOpt = document.createElement('option');
+                descOpt.value = 'desc';
+                descOpt.textContent = 'Descending';
+                sortDir.appendChild(descOpt);
+
+                sortContainer.appendChild(sortLabel);
+                sortContainer.appendChild(sortSelect);
+                sortContainer.appendChild(sortDir);
+                tabContent.appendChild(sortContainer);
+
                 // Add columns for this worksheet
                 columns.forEach((column, index) => {
                     const div = document.createElement('div');
@@ -366,16 +403,63 @@ async function handleWorksheetSelection() {
                     renameInput.title = 'Click to rename for export';
                     renameInput.dataset.originalName = column.fieldName;
 
-                    // Add badge for column type
-                    const badge = document.createElement('span');
+                    // Determine actual data type and format options
                     const dataType = column.dataType.toLowerCase();
-                    if (dataType.includes('int') || dataType.includes('float') || dataType.includes('real')) {
+                    let displayType = '';
+                    let exportType = '';
+                    
+                    if (dataType.includes('date')) {
+                        displayType = 'Date';
+                        exportType = 'date';
+                    } else if (dataType.includes('int')) {
+                        displayType = 'Integer';
+                        exportType = 'number';
+                    } else if (dataType.includes('float') || dataType.includes('real')) {
+                        displayType = 'Decimal';
+                        exportType = 'number';
+                    } else if (dataType.includes('bool')) {
+                        displayType = 'Boolean';
+                        exportType = 'text';
+                    } else {
+                        displayType = 'Text';
+                        exportType = 'text';
+                    }
+
+                    // Add badge for column type showing actual data type
+                    const badge = document.createElement('span');
+                    if (exportType === 'number') {
                         badge.className = 'column-badge badge-measure';
-                        badge.textContent = 'Measure';
+                    } else if (exportType === 'date') {
+                        badge.className = 'column-badge badge-date';
                     } else {
                         badge.className = 'column-badge badge-dimension';
-                        badge.textContent = 'Dimension';
                     }
+                    badge.textContent = displayType;
+                    badge.title = `Source type: ${column.dataType}`;
+
+                    // Add data type selector dropdown
+                    const typeSelector = document.createElement('select');
+                    typeSelector.className = 'column-type-selector';
+                    typeSelector.title = 'Select export data type';
+                    typeSelector.dataset.originalType = exportType;
+                    
+                    // Add options based on source type
+                    const options = [
+                        { value: 'text', label: 'Text' },
+                        { value: 'number', label: 'Number' },
+                        { value: 'date', label: 'Date (Mon-YYYY)' },
+                        { value: 'date-full', label: 'Date (Full)' }
+                    ];
+                    
+                    options.forEach(opt => {
+                        const option = document.createElement('option');
+                        option.value = opt.value;
+                        option.textContent = opt.label;
+                        if (opt.value === exportType) {
+                            option.selected = true;
+                        }
+                        typeSelector.appendChild(option);
+                    });
 
                     // No drag events needed - using sequence numbers instead
 
@@ -383,6 +467,7 @@ async function handleWorksheetSelection() {
                     div.appendChild(checkbox);
                     div.appendChild(renameInput);
                     div.appendChild(badge);
+                    div.appendChild(typeSelector);
                     tabContent.appendChild(div);
                 });
 
@@ -397,8 +482,7 @@ async function handleWorksheetSelection() {
             
             // Check if we already have columns cached
             if (!window.worksheetColumns.has(worksheetName)) {
-                // Fetch just columns metadata (Tableau may show warnings - these are non-critical)
-                const dataTable = await worksheet.getSummaryDataAsync({ maxRows: 0 });
+                const dataTable = await worksheet.getSummaryDataAsync({ maxRows: 1 });
                 // Include all columns (including AGG columns like running sums)
                 const allColumns = dataTable.columns;
                 window.worksheetColumns.set(worksheetName, allColumns);
@@ -457,6 +541,47 @@ function displayColumnSelection(columns, worksheetName) {
     buttonGroup.appendChild(selectAllBtn);
     buttonGroup.appendChild(deselectAllBtn);
     columnList.appendChild(buttonGroup);
+
+    // Sort controls
+    const sortContainer = document.createElement('div');
+    sortContainer.style.cssText = 'margin-bottom: 10px; display: flex; gap: 8px; align-items: center;';
+
+    const sortLabel = document.createElement('span');
+    sortLabel.textContent = 'Sort by:';
+    sortLabel.style.fontWeight = '600';
+    sortLabel.style.fontSize = '13px';
+
+    const sortSelect = document.createElement('select');
+    sortSelect.className = 'sort-column-selector';
+    sortSelect.style.cssText = 'flex: 1; padding: 6px; font-size: 13px;';
+    const defaultOpt = document.createElement('option');
+    defaultOpt.value = '';
+    defaultOpt.textContent = 'No sort';
+    sortSelect.appendChild(defaultOpt);
+
+    columns.forEach(col => {
+        const opt = document.createElement('option');
+        opt.value = col.fieldName;
+        opt.textContent = getDisplayName(col.fieldName);
+        sortSelect.appendChild(opt);
+    });
+
+    const sortDir = document.createElement('select');
+    sortDir.className = 'sort-direction-selector';
+    sortDir.style.cssText = 'width: 110px; padding: 6px; font-size: 13px;';
+    const ascOpt = document.createElement('option');
+    ascOpt.value = 'asc';
+    ascOpt.textContent = 'Ascending';
+    sortDir.appendChild(ascOpt);
+    const descOpt = document.createElement('option');
+    descOpt.value = 'desc';
+    descOpt.textContent = 'Descending';
+    sortDir.appendChild(descOpt);
+
+    sortContainer.appendChild(sortLabel);
+    sortContainer.appendChild(sortSelect);
+    sortContainer.appendChild(sortDir);
+    columnList.appendChild(sortContainer);
     
     columns.forEach((column, index) => {
         const div = document.createElement('div');
@@ -494,21 +619,69 @@ function displayColumnSelection(columns, worksheetName) {
         renameInput.title = 'Click to rename for export';
         renameInput.dataset.originalName = column.fieldName;
 
-        // Add badge for column type
-        const badge = document.createElement('span');
+        // Determine actual data type and format options
         const dataType = column.dataType.toLowerCase();
-        if (dataType.includes('int') || dataType.includes('float') || dataType.includes('real')) {
+        let displayType = '';
+        let exportType = '';
+        
+        if (dataType.includes('date')) {
+            displayType = 'Date';
+            exportType = 'date';
+        } else if (dataType.includes('int')) {
+            displayType = 'Integer';
+            exportType = 'number';
+        } else if (dataType.includes('float') || dataType.includes('real')) {
+            displayType = 'Decimal';
+            exportType = 'number';
+        } else if (dataType.includes('bool')) {
+            displayType = 'Boolean';
+            exportType = 'text';
+        } else {
+            displayType = 'Text';
+            exportType = 'text';
+        }
+
+        // Add badge for column type showing actual data type
+        const badge = document.createElement('span');
+        if (exportType === 'number') {
             badge.className = 'column-badge badge-measure';
-            badge.textContent = 'Measure';
+        } else if (exportType === 'date') {
+            badge.className = 'column-badge badge-date';
         } else {
             badge.className = 'column-badge badge-dimension';
-            badge.textContent = 'Dimension';
         }
+        badge.textContent = displayType;
+        badge.title = `Source type: ${column.dataType}`;
+
+        // Add data type selector dropdown
+        const typeSelector = document.createElement('select');
+        typeSelector.className = 'column-type-selector';
+        typeSelector.title = 'Select export data type';
+        typeSelector.dataset.originalType = exportType;
+        
+        // Add options based on source type
+        const options = [
+            { value: 'text', label: 'Text' },
+            { value: 'number', label: 'Number' },
+            { value: 'date', label: 'Date (Mon-YYYY)' },
+            { value: 'date-full', label: 'Date (Full)' }
+        ];
+        
+        options.forEach(opt => {
+            const option = document.createElement('option');
+            option.value = opt.value;
+            option.textContent = opt.label;
+            if (opt.value === exportType) {
+                option.selected = true;
+            }
+            typeSelector.appendChild(option);
+        });
 
         div.appendChild(orderInput);
         div.appendChild(checkbox);
         div.appendChild(renameInput);
         div.appendChild(badge);
+        div.appendChild(typeSelector);
         columnList.appendChild(div);
     });
 }
@@ -753,13 +926,19 @@ async function exportToExcel() {
         const indices = [];
         const names = [];
         const originalNames = [];
+        const exportTypes = [];
+        let sortField = '';
+        let sortDirection = 'asc';
+        let sortIndex = -1;
 
         columnItems.forEach(item => {
             const checkbox = item.querySelector('input[type="checkbox"]');
             if (checkbox && checkbox.checked) {
                 const renameInput = item.querySelector('.column-rename-input');
+                const typeSelector = item.querySelector('.column-type-selector');
                 const originalName = renameInput ? renameInput.dataset.originalName : checkbox.value;
                 const newName = renameInput ? (renameInput.value.trim() || originalName) : originalName;
+                const exportType = typeSelector ? typeSelector.value : 'text';
 
                 // Find original index from cached columns
                 const cachedColumns = window.worksheetColumns?.get(worksheetName) || [];
@@ -769,12 +948,25 @@ async function exportToExcel() {
                     indices.push(originalIndex);
                     names.push(newName);
                     originalNames.push(originalName);
+                    exportTypes.push(exportType);
                 }
             }
         });
 
+        // Capture sort selection
+        const sortSelect = tabContent.querySelector('.sort-column-selector');
+        const sortDirSelect = tabContent.querySelector('.sort-direction-selector');
+        sortField = sortSelect ? sortSelect.value : '';
+        sortDirection = sortDirSelect ? sortDirSelect.value : 'asc';
+        if (sortField) {
+            sortIndex = originalNames.findIndex(n => n === sortField);
+            if (sortIndex === -1) {
+                sortField = '';
+            }
+        }
+
         // Always add to map, even if no columns selected (to distinguish from "not configured")
-        worksheetColumns.set(worksheetName, { indices, names, originalNames });
+        worksheetColumns.set(worksheetName, { indices, names, originalNames, exportTypes, sortField, sortDirection, sortIndex });
     });
     
     // Handle single worksheet (no tabs, direct column list)
@@ -785,13 +977,19 @@ async function exportToExcel() {
         const indices = [];
         const names = [];
         const originalNames = [];
+        const exportTypes = [];
+        let sortField = '';
+        let sortDirection = 'asc';
+        let sortIndex = -1;
 
         columnItems.forEach(item => {
             const checkbox = item.querySelector('input[type="checkbox"]');
             if (checkbox && checkbox.checked) {
                 const renameInput = item.querySelector('.column-rename-input');
+                const typeSelector = item.querySelector('.column-type-selector');
                 const originalName = renameInput ? renameInput.dataset.originalName : checkbox.value;
                 const newName = renameInput ? (renameInput.value.trim() || originalName) : originalName;
+                const exportType = typeSelector ? typeSelector.value : 'text';
 
                 // Find original index from cached columns
                 const cachedColumns = window.worksheetColumns?.get(worksheetName) || [];
@@ -801,12 +999,25 @@ async function exportToExcel() {
                     indices.push(originalIndex);
                     names.push(newName);
                     originalNames.push(originalName);
+                    exportTypes.push(exportType);
                 }
             }
         });
 
+        // Capture sort selection
+        const sortSelect = columnList.querySelector('.sort-column-selector');
+        const sortDirSelect = columnList.querySelector('.sort-direction-selector');
+        sortField = sortSelect ? sortSelect.value : '';
+        sortDirection = sortDirSelect ? sortDirSelect.value : 'asc';
+        if (sortField) {
+            sortIndex = originalNames.findIndex(n => n === sortField);
+            if (sortIndex === -1) {
+                sortField = '';
+            }
+        }
+
         // Always add to map, even if no columns selected (to distinguish from "not configured")
-        worksheetColumns.set(worksheetName, { indices, names, originalNames });
+        worksheetColumns.set(worksheetName, { indices, names, originalNames, exportTypes, sortField, sortDirection, sortIndex });
         if (indices.length === 0) {
             console.log(`Single worksheet mode: No columns selected for ${worksheetName}, will skip this worksheet`);
         } else {
@@ -881,7 +1092,6 @@ async function exportToExcel() {
             try {
                 // Force fetch fresh data respecting current dashboard filters
                 console.log(`Fetching fresh data for ${worksheetName} with current filters applied...`);
-                // Note: Tableau may show "No Tableau Server user found" warnings - these are non-critical
                 const dataTable = await worksheet.getSummaryDataAsync();
                 console.log(`Retrieved ${dataTable.data.length} rows for ${worksheetName}`);
                 
@@ -906,6 +1116,7 @@ async function exportToExcel() {
                     const mappedNames = [];
                     
                     // Match selected columns by original field name in fresh data
+                    const mappedTypes = [];
                     wsColumns.originalNames.forEach((originalName, idx) => {
                         // Find this column in the fresh dataTable by field name
                         const freshColIndex = dataTable.columns.findIndex(col => col.fieldName === originalName);
@@ -914,6 +1125,7 @@ async function exportToExcel() {
                             // Column exists in fresh data (including AGG columns)
                             mappedIndices.push(freshColIndex);
                             mappedNames.push(wsColumns.names[idx]);
+                            mappedTypes.push(wsColumns.exportTypes ? wsColumns.exportTypes[idx] : 'text');
                             console.log(`  ✓ Matched "${originalName}" → index ${freshColIndex}`);
                         } else {
                             console.log(`  ✗ Column "${originalName}" not found in fresh data`);
@@ -922,7 +1134,7 @@ async function exportToExcel() {
                     
                     if (mappedIndices.length > 0) {
                         console.log(`Exporting ${mappedIndices.length} matched columns for ${worksheetName}`, { mappedNames });
-                        data = filterColumns(dataTable, mappedIndices, mappedNames, aggregateData);
+                        data = filterColumns(dataTable, mappedIndices, mappedNames, aggregateData, mappedTypes);
                     } else {
                         console.log('No columns matched in fresh data, skipping worksheet (no valid columns selected)');
                         data = null; // Skip this worksheet
@@ -935,7 +1147,15 @@ async function exportToExcel() {
                     // Column selection UI wasn't used or worksheet wasn't in config - export all non-AGG columns
                     console.log(`No column selection config for ${worksheetName}, exporting all non-AGG columns (aggregate: ${aggregateData})`);
                     data = filterColumns(dataTable, filteredColumnIndices, filteredColumnNames, aggregateData);
-                }                if (data && data.length > 0) {
+                }
+
+                // Apply sort if configured
+                if (data && data.length > 1 && wsColumns && wsColumns.sortIndex >= 0) {
+                    const sortType = wsColumns.exportTypes ? wsColumns.exportTypes[wsColumns.sortIndex] : 'text';
+                    data = sortDataRows(data, wsColumns.sortIndex, wsColumns.sortDirection || 'asc', sortType);
+                }
+
+                if (data && data.length > 0) {
                     const sheetName = sanitizeSheetName(worksheetName);
                     const ws = XLSX.utils.aoa_to_sheet(data);
 
@@ -970,11 +1190,52 @@ async function exportToExcel() {
         setLoading(false);
     }
 }// Filter columns and optionally aggregate data
-function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData) {
+function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData, exportTypes) {
     const data = [];
     
     // Add headers (selected columns only)
     data.push(selectedNames);
+    
+    // Helper function to format value based on export type
+    const formatValue = (value, formattedValue, exportType) => {
+        if (!exportType || exportType === 'text') {
+            return formattedValue;
+        }
+        
+        if (exportType === 'number') {
+            const numValue = typeof value === 'number' ? value : parseFloat(value);
+            return isNaN(numValue) ? formattedValue : numValue;
+        }
+        
+        if (exportType === 'date' || exportType === 'date-full') {
+            // Check if it's already in Mon-YYYY format or similar short date
+            const shortDatePattern = /^[A-Za-z]{3}-\d{4}$/; // Nov-2024
+            const monthYearPattern = /^[A-Za-z]+ \d{4}$/; // November 2024
+            
+            if (exportType === 'date' && shortDatePattern.test(formattedValue)) {
+                // Already in desired format
+                return formattedValue;
+            } else if (exportType === 'date' && monthYearPattern.test(formattedValue)) {
+                // Convert "November 2024" to "Nov-2024"
+                const parts = formattedValue.split(' ');
+                const monthMap = {
+                    'January': 'Jan', 'February': 'Feb', 'March': 'Mar', 'April': 'Apr',
+                    'May': 'May', 'June': 'Jun', 'July': 'Jul', 'August': 'Aug',
+                    'September': 'Sep', 'October': 'Oct', 'November': 'Nov', 'December': 'Dec'
+                };
+                const shortMonth = monthMap[parts[0]] || parts[0].substring(0, 3);
+                return `${shortMonth}-${parts[1]}`;
+            } else if (exportType === 'date' && value instanceof Date) {
+                // Format Date object as Mon-YYYY
+                const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+                return `${monthNames[value.getMonth()]}-${value.getFullYear()}`;
+            }
+            // For date-full or other date formats, return as-is
+            return formattedValue;
+        }
+        
+        return formattedValue;
+    };
     
     if (aggregateData) {
         // Aggregate data: group by dimensions and sum measures
@@ -1028,13 +1289,15 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData)
                 // Place dimensions in their positions
                 dimensionIndices.forEach((dimIndex, idx) => {
                     const posInSelected = selectedIndices.indexOf(dimIndex);
-                    row[posInSelected] = group.dimensions[idx];
+                    const exportType = exportTypes ? exportTypes[posInSelected] : 'text';
+                    row[posInSelected] = formatValue(group.dimensions[idx], group.dimensions[idx], exportType);
                 });
                 
                 // Place aggregated measures in their positions
                 measureIndices.forEach((measureIndex, idx) => {
                     const posInSelected = selectedIndices.indexOf(measureIndex);
-                    row[posInSelected] = group.measures[idx];
+                    const exportType = exportTypes ? exportTypes[posInSelected] : 'number';
+                    row[posInSelected] = formatValue(group.measures[idx], group.measures[idx], exportType);
                 });
                 
                 data.push(row);
@@ -1047,9 +1310,11 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData)
             
             for (let i = 0; i < dataTable.data.length; i++) {
                 const row = [];
-                for (const colIndex of selectedIndices) {
-                    row.push(dataTable.data[i][colIndex].formattedValue);
-                }
+                selectedIndices.forEach((colIndex, idx) => {
+                    const cellData = dataTable.data[i][colIndex];
+                    const exportType = exportTypes ? exportTypes[idx] : 'text';
+                    row.push(formatValue(cellData.value, cellData.formattedValue, exportType));
+                });
                 const rowKey = row.join('|||');
                 if (!distinctRows.has(rowKey)) {
                     distinctRows.add(rowKey);
@@ -1063,9 +1328,11 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData)
         // Export all rows with selected columns (no aggregation)
         for (let i = 0; i < dataTable.data.length; i++) {
             const row = [];
-            for (const colIndex of selectedIndices) {
-                row.push(dataTable.data[i][colIndex].formattedValue);
-            }
+            selectedIndices.forEach((colIndex, idx) => {
+                const cellData = dataTable.data[i][colIndex];
+                const exportType = exportTypes ? exportTypes[idx] : 'text';
+                row.push(formatValue(cellData.value, cellData.formattedValue, exportType));
+            });
             data.push(row);
         }
         
@@ -1419,4 +1686,70 @@ function calculateColumnWidths(data) {
     }
     
     return colWidths;
+}
+
+// Sort data rows (excluding header) by selected column
+function sortDataRows(data, sortIndex, direction, exportType) {
+    if (!data || data.length <= 1 || sortIndex === undefined || sortIndex < 0) return data;
+
+    const header = data[0];
+    const rows = data.slice(1);
+
+    const monthMap = {
+        Jan: 0, Feb: 1, Mar: 2, Apr: 3, May: 4, Jun: 5,
+        Jul: 6, Aug: 7, Sep: 8, Oct: 9, Nov: 10, Dec: 11
+    };
+
+    const parseDateValue = (value) => {
+        if (value instanceof Date) return value.getTime();
+        const str = String(value || '').trim();
+        if (!str) return NaN;
+
+        // Match "Nov-2024"
+        const shortMatch = str.match(/^([A-Za-z]{3})-(\d{4})$/);
+        if (shortMatch) {
+            const monKey = shortMatch[1];
+            const mIdx = monthMap.hasOwnProperty(monKey) ? monthMap[monKey] : undefined;
+            if (mIdx !== undefined) {
+                return new Date(Number(shortMatch[2]), mIdx, 1).getTime();
+            }
+        }
+
+        // Match "November 2024"
+        const longMatch = str.match(/^([A-Za-z]+)\s+(\d{4})$/);
+        if (longMatch) {
+            const longMonth = longMatch[1].substring(0, 3);
+            const mIdx = monthMap.hasOwnProperty(longMonth) ? monthMap[longMonth] : (monthMap.hasOwnProperty(longMatch[1]) ? monthMap[longMatch[1]] : undefined);
+            if (mIdx !== undefined) {
+                return new Date(Number(longMatch[2]), mIdx, 1).getTime();
+            }
+        }
+
+        const parsed = Date.parse(str);
+        return isNaN(parsed) ? NaN : parsed;
+    };
+
+    const normalize = (value) => {
+        if (exportType === 'number') {
+            const n = typeof value === 'number' ? value : parseFloat(value);
+            return isNaN(n) ? Number.NEGATIVE_INFINITY : n;
+        }
+        if (exportType === 'date' || exportType === 'date-full') {
+            const t = parseDateValue(value);
+            return isNaN(t) ? Number.NEGATIVE_INFINITY : t;
+        }
+        // Text fallback
+        return String(value || '').toLowerCase();
+    };
+
+    rows.sort((a, b) => {
+        const aVal = normalize(a[sortIndex]);
+        const bVal = normalize(b[sortIndex]);
+
+        if (aVal < bVal) return direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return direction === 'asc' ? 1 : -1;
+        return 0;
+    });
+
+    return [header, ...rows];
 }
