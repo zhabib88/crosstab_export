@@ -1110,7 +1110,7 @@ async function exportToExcel() {
     // Get aggregation option (default is to aggregate/sum measures, checkbox disables aggregation)
     const includeDuplicateRows = document.getElementById('includeDuplicateRows')?.checked || false;
     const aggregateData = !includeDuplicateRows; // Default: aggregate measures by dimensions
-    const includeDashboardFilters = document.getElementById('includeDashboardFilters')?.checked || false;
+    const includeDashboardFilters = !!document.getElementById('includeDashboardFilters')?.checked; // default unchecked
     const includeNullsAcrossDimensions = document.getElementById('includeNullsAcrossDimensions')?.checked || false; // Optional user toggle (add checkbox with this id to UI)
 
     console.log('Export options:', {
