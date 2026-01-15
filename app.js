@@ -1246,7 +1246,15 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
 
         if (!hasMeasureValue) return false;
 
-        // Case 1: all dimensions empty/total labels (includes null Finance categories)
+        // Case 1: any dimension explicitly marked as total/grand total/null (even if other dims have values)
+        const anyTotalLabel = dimVals.some(v => {
+            const s = String(v || '').trim();
+            if (!s) return false;
+            return /^total$/i.test(s) || /^grand total$/i.test(s) || /^null$/i.test(s);
+        });
+        if (anyTotalLabel) return true;
+
+        // Case 2: all dimensions empty/total labels (includes null Finance categories)
         const allDimsEmptyOrTotal = dimVals.length > 0 && dimVals.every(v => {
             const s = String(v || '').trim();
             if (!s) return true;
@@ -1254,7 +1262,7 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
         });
         if (allDimsEmptyOrTotal) return true;
 
-        // Case 2: at least one dimension is empty/null while others are populated => subtotal along that dim
+        // Case 3: at least one dimension is empty/null while others are populated => subtotal along that dim
         const hasBlankDim = dimVals.some(v => String(v || '').trim() === '' || /^null$/i.test(String(v || '')));
         const hasNonBlankDim = dimVals.some(v => String(v || '').trim() !== '' && !/^null$/i.test(String(v || '')));
         if (hasBlankDim && hasNonBlankDim) return true;
