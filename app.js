@@ -1246,11 +1246,11 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
 
         if (!hasMeasureValue) return false;
 
-        // Case 1: any dimension explicitly marked as total/grand total/null (even if other dims have values)
+        // Case 1: any dimension explicitly marked as total/grand total/null/blank (even if other dims have values)
         const anyTotalLabel = dimVals.some(v => {
             const s = String(v || '').trim();
-            if (!s) return false;
-            return /^total$/i.test(s) || /^grand total$/i.test(s) || /^null$/i.test(s);
+            if (!s) return true; // treat blanks as subtotal/total rows
+            return /^total$/i.test(s) || /^grand total$/i.test(s) || /^null$/i.test(s) || /^\(null\)$/i.test(s) || /^\(blank\)$/i.test(s);
         });
         if (anyTotalLabel) return true;
 
@@ -1258,13 +1258,19 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
         const allDimsEmptyOrTotal = dimVals.length > 0 && dimVals.every(v => {
             const s = String(v || '').trim();
             if (!s) return true;
-            return /^total$/i.test(s) || /^grand total$/i.test(s) || /^null$/i.test(s);
+            return /^total$/i.test(s) || /^grand total$/i.test(s) || /^null$/i.test(s) || /^\(null\)$/i.test(s) || /^\(blank\)$/i.test(s);
         });
         if (allDimsEmptyOrTotal) return true;
 
-        // Case 3: at least one dimension is empty/null while others are populated => subtotal along that dim
-        const hasBlankDim = dimVals.some(v => String(v || '').trim() === '' || /^null$/i.test(String(v || '')));
-        const hasNonBlankDim = dimVals.some(v => String(v || '').trim() !== '' && !/^null$/i.test(String(v || '')));
+        // Case 3: at least one dimension is empty/null/blank while others are populated => subtotal along that dim
+        const hasBlankDim = dimVals.some(v => {
+            const s = String(v || '').trim();
+            return s === '' || /^null$/i.test(s) || /^\(null\)$/i.test(s) || /^\(blank\)$/i.test(s);
+        });
+        const hasNonBlankDim = dimVals.some(v => {
+            const s = String(v || '').trim();
+            return s !== '' && !/^null$/i.test(s) && !/^\(null\)$/i.test(s) && !/^\(blank\)$/i.test(s);
+        });
         if (hasBlankDim && hasNonBlankDim) return true;
 
         return false;
