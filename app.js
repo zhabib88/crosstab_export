@@ -1215,12 +1215,6 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
             return (cell && (cell.formattedValue ?? cell.value)) || '';
         });
 
-        const allDimsEmptyOrTotal = dimVals.length > 0 && dimVals.every(v => {
-            const s = String(v || '').trim();
-            if (!s) return true;
-            return /^total$/i.test(s) || /^grand total$/i.test(s);
-        });
-
         const hasMeasureValue = measureIndices.some(mi => {
             const cell = rowData[mi];
             if (!cell) return false;
@@ -1229,7 +1223,22 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
             return (v !== null && v !== undefined && v !== '') || (fv !== null && fv !== undefined && fv !== '');
         });
 
-        return allDimsEmptyOrTotal && hasMeasureValue;
+        if (!hasMeasureValue) return false;
+
+        // Case 1: all dimensions empty/total labels
+        const allDimsEmptyOrTotal = dimVals.length > 0 && dimVals.every(v => {
+            const s = String(v || '').trim();
+            if (!s) return true;
+            return /^total$/i.test(s) || /^grand total$/i.test(s) || /^null$/i.test(s);
+        });
+        if (allDimsEmptyOrTotal) return true;
+
+        // Case 2: at least one dimension is empty/null while others are populated => subtotal along that dim
+        const hasBlankDim = dimVals.some(v => String(v || '').trim() === '' || /^null$/i.test(String(v || '')));
+        const hasNonBlankDim = dimVals.some(v => String(v || '').trim() !== '' && !/^null$/i.test(String(v || '')));
+        if (hasBlankDim && hasNonBlankDim) return true;
+
+        return false;
     };
     
     // Helper function to format value based on export type
