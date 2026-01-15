@@ -1196,6 +1196,42 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
     // Add headers (selected columns only)
     data.push(selectedNames);
     
+    // Detect measures vs dimensions for selected columns
+    const columnMeta = selectedIndices.map(idx => {
+        const col = dataTable.columns[idx];
+        const dtype = (col.dataType || '').toLowerCase();
+        const isMeasure = dtype.includes('int') || dtype.includes('float') || dtype.includes('real') || dtype === 'number';
+        return { idx, isMeasure };
+    });
+
+    const dimensionIndices = columnMeta.filter(c => !c.isMeasure).map(c => c.idx);
+    const measureIndices = columnMeta.filter(c => c.isMeasure).map(c => c.idx);
+    const excludeTotals = true; // Always drop grand/subtotals to avoid double-counting
+
+    const isTotalRow = (rowData) => {
+        if (!excludeTotals || dimensionIndices.length === 0) return false;
+        const dimVals = dimensionIndices.map(di => {
+            const cell = rowData[di];
+            return (cell && (cell.formattedValue ?? cell.value)) || '';
+        });
+
+        const allDimsEmptyOrTotal = dimVals.length > 0 && dimVals.every(v => {
+            const s = String(v || '').trim();
+            if (!s) return true;
+            return /^total$/i.test(s) || /^grand total$/i.test(s);
+        });
+
+        const hasMeasureValue = measureIndices.some(mi => {
+            const cell = rowData[mi];
+            if (!cell) return false;
+            const v = cell.value;
+            const fv = cell.formattedValue;
+            return (v !== null && v !== undefined && v !== '') || (fv !== null && fv !== undefined && fv !== '');
+        });
+
+        return allDimsEmptyOrTotal && hasMeasureValue;
+    };
+    
     // Helper function to format value based on export type
     const formatValue = (value, formattedValue, exportType) => {
         if (!exportType || exportType === 'text') {
@@ -1256,6 +1292,7 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
             const aggregated = new Map();
             
             for (let i = 0; i < dataTable.data.length; i++) {
+                if (isTotalRow(dataTable.data[i])) continue; // skip grand/subtotals
                 // Build dimension key
                 const dimValues = [];
                 for (const dimIndex of dimensionIndices) {
@@ -1309,6 +1346,7 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
             const distinctRows = new Set();
             
             for (let i = 0; i < dataTable.data.length; i++) {
+                if (isTotalRow(dataTable.data[i])) continue; // skip grand/subtotals
                 const row = [];
                 selectedIndices.forEach((colIndex, idx) => {
                     const cellData = dataTable.data[i][colIndex];
@@ -1327,6 +1365,7 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
     } else {
         // Export all rows with selected columns (no aggregation)
         for (let i = 0; i < dataTable.data.length; i++) {
+            if (isTotalRow(dataTable.data[i])) continue; // skip grand/subtotals
             const row = [];
             selectedIndices.forEach((colIndex, idx) => {
                 const cellData = dataTable.data[i][colIndex];
