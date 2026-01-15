@@ -1189,7 +1189,7 @@ async function exportToExcel() {
     } finally {
         setLoading(false);
     }
-}// Filter columns and optionally aggregate data
+// Filter columns and optionally aggregate data
 function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData, exportTypes) {
     const data = [];
     
@@ -1204,18 +1204,39 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
         return { idx, isMeasure };
     });
 
-    const dimensionIndices = columnMeta.filter(c => !c.isMeasure).map(c => c.idx);
-    const measureIndices = columnMeta.filter(c => c.isMeasure).map(c => c.idx);
+    const selectedDimensionIndices = columnMeta.filter(c => !c.isMeasure).map(c => c.idx);
+    const selectedMeasureIndices = columnMeta.filter(c => c.isMeasure).map(c => c.idx);
+
+    // Capture all dimensions/measures present in the worksheet so we can drop subtotal/null rows
+    const allDimensionIndices = dataTable.columns.reduce((acc, col, idx) => {
+        const dtype = (col.dataType || '').toLowerCase();
+        if (!(dtype.includes('int') || dtype.includes('float') || dtype.includes('real') || dtype === 'number')) {
+            acc.push(idx);
+        }
+        return acc;
+    }, []);
+
+    const allMeasureIndices = dataTable.columns.reduce((acc, col, idx) => {
+        const dtype = (col.dataType || '').toLowerCase();
+        if (dtype.includes('int') || dtype.includes('float') || dtype.includes('real') || dtype === 'number') {
+            acc.push(idx);
+        }
+        return acc;
+    }, []);
+
     const excludeTotals = true; // Always drop grand/subtotals to avoid double-counting
 
     const isTotalRow = (rowData) => {
-        if (!excludeTotals || dimensionIndices.length === 0) return false;
-        const dimVals = dimensionIndices.map(di => {
+        const dimIndicesForTotals = allDimensionIndices.length > 0 ? allDimensionIndices : selectedDimensionIndices;
+        const measureIndicesForTotals = allMeasureIndices.length > 0 ? allMeasureIndices : selectedMeasureIndices;
+        if (!excludeTotals || dimIndicesForTotals.length === 0) return false;
+
+        const dimVals = dimIndicesForTotals.map(di => {
             const cell = rowData[di];
             return (cell && (cell.formattedValue ?? cell.value)) || '';
         });
 
-        const hasMeasureValue = measureIndices.some(mi => {
+        const hasMeasureValue = measureIndicesForTotals.some(mi => {
             const cell = rowData[mi];
             if (!cell) return false;
             const v = cell.value;
@@ -1225,7 +1246,7 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
 
         if (!hasMeasureValue) return false;
 
-        // Case 1: all dimensions empty/total labels
+        // Case 1: all dimensions empty/total labels (includes null Finance categories)
         const allDimsEmptyOrTotal = dimVals.length > 0 && dimVals.every(v => {
             const s = String(v || '').trim();
             if (!s) return true;
