@@ -126,25 +126,28 @@ async function loadWorksheets() {
         worksheetList.innerHTML = '<p style="color: #666; font-size: 13px;">Loading worksheet information...</p>';
         
         // Fetch column counts for all worksheets
-        const worksheetData = [];
-        for (const worksheet of worksheets) {
+        const withTimeout = (promise, ms) => {
+            return Promise.race([
+                promise,
+                new Promise((_, reject) => setTimeout(() => reject(new Error('timeout')), ms))
+            ]);
+        };
+
+        const worksheetData = await Promise.all(worksheets.map(async (worksheet) => {
             try {
-                const dataTable = await worksheet.getSummaryDataAsync({ maxRows: 1 });
-                // Include all columns (including AGG columns like running sums)
+                // Light call and short timeout to avoid hanging UI
+                const dataTable = await withTimeout(
+                    worksheet.getSummaryDataAsync({ maxRows: 1, ignoreSelection: true }),
+                    5000
+                );
                 const allColumns = dataTable.columns;
-                worksheetData.push({
-                    worksheet: worksheet,
-                    columnCount: allColumns.length
-                });
                 console.log(`Worksheet "${worksheet.name}" has ${allColumns.length} columns`);
+                return { worksheet, columnCount: allColumns.length };
             } catch (error) {
-                console.error(`Error fetching columns for ${worksheet.name}:`, error);
-                worksheetData.push({
-                    worksheet: worksheet,
-                    columnCount: 0
-                });
+                console.error(`Error fetching columns for ${worksheet.name}:`, error.message || error);
+                return { worksheet, columnCount: 0 };
             }
-        }
+        }));
         
         worksheetList.innerHTML = '';
         
