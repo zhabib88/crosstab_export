@@ -1049,13 +1049,15 @@ async function exportToExcel() {
     const includeDuplicateRows = document.getElementById('includeDuplicateRows')?.checked || false;
     const aggregateData = !includeDuplicateRows; // Default: aggregate measures by dimensions
     const includeDashboardFilters = document.getElementById('includeDashboardFilters')?.checked || false;
+    const includeNullsAcrossDimensions = document.getElementById('includeNullsAcrossDimensions')?.checked || false; // Optional user toggle (add checkbox with this id to UI)
 
     console.log('Export options:', {
         worksheets: selectedWorksheets.length,
         worksheetColumns: Array.from(worksheetColumns.entries()).map(([name, cols]) => `${name}: ${cols.names.length} columns`),
         aggregateData: aggregateData,
         includeDuplicates: includeDuplicateRows,
-        includeFilters: includeDashboardFilters
+        includeFilters: includeDashboardFilters,
+        includeNullsAcrossDimensions: includeNullsAcrossDimensions
     });
 
     setLoading(true);
@@ -1134,7 +1136,7 @@ async function exportToExcel() {
                     
                     if (mappedIndices.length > 0) {
                         console.log(`Exporting ${mappedIndices.length} matched columns for ${worksheetName}`, { mappedNames });
-                        data = filterColumns(dataTable, mappedIndices, mappedNames, aggregateData, mappedTypes);
+                        data = filterColumns(dataTable, mappedIndices, mappedNames, aggregateData, mappedTypes, includeNullsAcrossDimensions);
                     } else {
                         console.log('No columns matched in fresh data, skipping worksheet (no valid columns selected)');
                         data = null; // Skip this worksheet
@@ -1146,7 +1148,7 @@ async function exportToExcel() {
                 } else {
                     // Column selection UI wasn't used or worksheet wasn't in config - export all non-AGG columns
                     console.log(`No column selection config for ${worksheetName}, exporting all non-AGG columns (aggregate: ${aggregateData})`);
-                    data = filterColumns(dataTable, filteredColumnIndices, filteredColumnNames, aggregateData);
+                    data = filterColumns(dataTable, filteredColumnIndices, filteredColumnNames, aggregateData, undefined, includeNullsAcrossDimensions);
                 }
 
                 // Apply sort if configured
@@ -1189,12 +1191,71 @@ async function exportToExcel() {
     } finally {
         setLoading(false);
     }
-}// Filter columns and optionally aggregate data
-function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData, exportTypes) {
+// Filter columns and optionally aggregate data
+function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData, exportTypes, includeNullsAcrossDimensions = false) {
     const data = [];
     
     // Add headers (selected columns only)
     data.push(selectedNames);
+
+    // Identify all dimension/measure columns in the worksheet (not just selected)
+    const dimensionIndicesAll = [];
+    const measureIndicesAll = [];
+    dataTable.columns.forEach((col, idx) => {
+        const dtype = (col.dataType || '').toLowerCase();
+        if (dtype.includes('int') || dtype.includes('float') || dtype.includes('real') || dtype === 'number') {
+            measureIndicesAll.push(idx);
+        } else {
+            dimensionIndicesAll.push(idx);
+        }
+    });
+
+    const isNullish = (s) => {
+        const v = String(s || '').trim();
+        return v === '' || /^null$/i.test(v) || /^\(null\)$/i.test(v) || /^\(blank\)$/i.test(v);
+    };
+
+    const isTotalLabel = (s) => {
+        const v = String(s || '').trim();
+        return /^total$/i.test(v) || /^grand total$/i.test(v);
+    };
+
+    const shouldSkipRow = (rowData) => {
+        if (!rowData) return false;
+
+        // Quick check: if user allows nulls, only drop explicit total labels
+        const dimValsAll = dimensionIndicesAll.map(di => {
+            const cell = rowData[di];
+            return (cell && (cell.formattedValue ?? cell.value)) || '';
+        });
+
+        const hasMeasureValue = measureIndicesAll.length === 0 ? true : measureIndicesAll.some(mi => {
+            const cell = rowData[mi];
+            if (!cell) return false;
+            const v = cell.value;
+            const fv = cell.formattedValue;
+            return (v !== null && v !== undefined && v !== '') || (fv !== null && fv !== undefined && fv !== '');
+        });
+
+        if (!hasMeasureValue) return false;
+
+        // Always drop rows explicitly labeled totals
+        if (dimValsAll.some(isTotalLabel)) return true;
+
+        if (includeNullsAcrossDimensions) {
+            return false; // user chose to keep null/blank dimension rows
+        }
+
+        // Drop any row with blank/null in any dimension to avoid subtotal/null buckets
+        if (dimValsAll.some(isNullish)) return true;
+
+        // Drop mixed subtotal rows (some dims null, some not)
+        const hasNullDim = dimValsAll.some(isNullish);
+        const hasNonNullDim = dimValsAll.some(v => !isNullish(v));
+        if (hasNullDim && hasNonNullDim) return true;
+
+        return false;
+    };
     
     // Helper function to format value based on export type
     const formatValue = (value, formattedValue, exportType) => {
@@ -1256,6 +1317,9 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
             const aggregated = new Map();
             
             for (let i = 0; i < dataTable.data.length; i++) {
+                // Skip subtotal/blank/null rows unless allowed
+                if (shouldSkipRow(dataTable.data[i])) continue;
+
                 // Build dimension key
                 const dimValues = [];
                 for (const dimIndex of dimensionIndices) {
@@ -1309,6 +1373,8 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
             const distinctRows = new Set();
             
             for (let i = 0; i < dataTable.data.length; i++) {
+                if (shouldSkipRow(dataTable.data[i])) continue;
+
                 const row = [];
                 selectedIndices.forEach((colIndex, idx) => {
                     const cellData = dataTable.data[i][colIndex];
@@ -1327,6 +1393,8 @@ function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData,
     } else {
         // Export all rows with selected columns (no aggregation)
         for (let i = 0; i < dataTable.data.length; i++) {
+            if (shouldSkipRow(dataTable.data[i])) continue;
+
             const row = [];
             selectedIndices.forEach((colIndex, idx) => {
                 const cellData = dataTable.data[i][colIndex];
