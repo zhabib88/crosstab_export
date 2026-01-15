@@ -1189,6 +1189,8 @@ async function exportToExcel() {
     } finally {
         setLoading(false);
     }
+}
+
 // Filter columns and optionally aggregate data
 function filterColumns(dataTable, selectedIndices, selectedNames, aggregateData, exportTypes) {
     const data = [];
