@@ -20,6 +20,8 @@ function getDisplayName(fieldName) {
 // Wait for DOM to load
 document.addEventListener('DOMContentLoaded', () => {
     injectExportOptionToggles();
+    // Force dashboard filters checkbox to start unchecked if present
+    setDefaultOptionStates();
     // Check if Tableau API is available
     if (typeof tableau === 'undefined') {
         console.error('Tableau Extensions API not loaded!');
@@ -30,6 +32,14 @@ document.addEventListener('DOMContentLoaded', () => {
         initializeExtension();
     }
 });
+
+// Ensure defaults for optional checkboxes
+function setDefaultOptionStates() {
+    const filtersCb = document.getElementById('includeDashboardFilters');
+    if (filtersCb) {
+        filtersCb.checked = false;
+    }
+}
 
 // Build lightweight UI toggles for null handling and hidden-dimension double-count protection
 function injectExportOptionToggles() {
