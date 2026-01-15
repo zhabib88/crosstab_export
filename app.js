@@ -58,11 +58,6 @@ function injectExportOptionToggles() {
 
         const toggles = [
             {
-                id: 'avoidHiddenDimDoubleCount',
-                label: 'Avoid double-count when hidden dimension stacks (use max instead of sum)',
-                help: 'Prevents finance/non-finance subtotals from inflating month totals when that dimension is not selected.'
-            },
-            {
                 id: 'includeNullsAcrossDimensions',
                 label: 'Include null/blank dimension rows',
                 help: 'If unchecked, rows with null/blank dimensions are dropped to avoid subtotal rows.'
@@ -1117,7 +1112,6 @@ async function exportToExcel() {
     const aggregateData = !includeDuplicateRows; // Default: aggregate measures by dimensions
     const includeDashboardFilters = document.getElementById('includeDashboardFilters')?.checked || false;
     const includeNullsAcrossDimensions = document.getElementById('includeNullsAcrossDimensions')?.checked || false; // Optional user toggle (add checkbox with this id to UI)
-    const avoidHiddenDimDoubleCount = document.getElementById('avoidHiddenDimDoubleCount')?.checked || false; // Optional toggle: prevent summing stacked categories when hidden dimensions exist
 
     console.log('Export options:', {
         worksheets: selectedWorksheets.length,
@@ -1125,8 +1119,7 @@ async function exportToExcel() {
         aggregateData: aggregateData,
         includeDuplicates: includeDuplicateRows,
         includeFilters: includeDashboardFilters,
-        includeNullsAcrossDimensions: includeNullsAcrossDimensions,
-        avoidHiddenDimDoubleCount: avoidHiddenDimDoubleCount
+        includeNullsAcrossDimensions: includeNullsAcrossDimensions
     });
 
     setLoading(true);
@@ -1205,7 +1198,7 @@ async function exportToExcel() {
                     
                     if (mappedIndices.length > 0) {
                         console.log(`Exporting ${mappedIndices.length} matched columns for ${worksheetName}`, { mappedNames });
-                        data = filterColumns(dataTable, mappedIndices, mappedNames, aggregateData, mappedTypes, includeNullsAcrossDimensions, avoidHiddenDimDoubleCount);
+                        data = filterColumns(dataTable, mappedIndices, mappedNames, aggregateData, mappedTypes, includeNullsAcrossDimensions);
                     } else {
                         console.log('No columns matched in fresh data, skipping worksheet (no valid columns selected)');
                         data = null; // Skip this worksheet
@@ -1217,7 +1210,7 @@ async function exportToExcel() {
                 } else {
                     // Column selection UI wasn't used or worksheet wasn't in config - export all non-AGG columns
                     console.log(`No column selection config for ${worksheetName}, exporting all non-AGG columns (aggregate: ${aggregateData})`);
-                    data = filterColumns(dataTable, filteredColumnIndices, filteredColumnNames, aggregateData, undefined, includeNullsAcrossDimensions, avoidHiddenDimDoubleCount);
+                    data = filterColumns(dataTable, filteredColumnIndices, filteredColumnNames, aggregateData, undefined, includeNullsAcrossDimensions);
                 }
 
                 // Apply sort if configured
@@ -1268,8 +1261,7 @@ function filterColumns(
     selectedNames,
     aggregateData,
     exportTypes,
-    includeNullsAcrossDimensions = false,
-    avoidHiddenDimDoubleCount = false
+    includeNullsAcrossDimensions = false
 ) {
     const data = [];
     
@@ -1413,17 +1405,11 @@ function filterColumns(
                     });
                 }
                 
-                // Aggregate measures with optional max to avoid double-counting hidden-dimension stacks
                 const group = aggregated.get(key);
                 measureIndices.forEach((measureIndex, idx) => {
                     const value = dataTable.data[i][measureIndex].value;
                     const numValue = typeof value === 'number' ? value : parseFloat(value) || 0;
-
-                    if (avoidHiddenDimDoubleCount) {
-                        group.measures[idx] = Math.max(group.measures[idx], numValue);
-                    } else {
-                        group.measures[idx] += numValue;
-                    }
+                    group.measures[idx] += numValue;
                 });
                 group.count++;
             }
@@ -1449,7 +1435,7 @@ function filterColumns(
                 data.push(row);
             });
             
-            console.log(`Aggregated from ${dataTable.data.length} rows to ${data.length - 1} grouped rows${avoidHiddenDimDoubleCount ? ' (max to avoid double-counting)' : ''}`);
+            console.log(`Aggregated from ${dataTable.data.length} rows to ${data.length - 1} grouped rows`);
         } else {
             // No measures to aggregate or no dimensions to group by - just get distinct rows
             const distinctRows = new Set();
