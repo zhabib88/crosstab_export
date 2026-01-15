@@ -38,7 +38,19 @@ function setDefaultOptionStates() {
     const filtersCb = document.getElementById('includeDashboardFilters');
     if (filtersCb) {
         filtersCb.checked = false;
+        filtersCb.defaultChecked = false;
+        filtersCb.removeAttribute('checked');
     }
+
+    // Re-assert after render in case the host sets defaults late
+    setTimeout(() => {
+        const cb = document.getElementById('includeDashboardFilters');
+        if (cb) {
+            cb.checked = false;
+            cb.defaultChecked = false;
+            cb.removeAttribute('checked');
+        }
+    }, 200);
 }
 
 // Build lightweight UI toggles for null handling and hidden-dimension double-count protection
